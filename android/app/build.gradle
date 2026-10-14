@@ -1,0 +1,51 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.devye.spike'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.devye.spike"
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    packagingOptions {
+        // 网页资产无需压缩，避免 WebView 解压开销
+        resources {
+            excludes += '/META-INF/*'
+        }
+    }
+}
+
+// 把仓库根目录的网页资产复制进 assets（保持单一数据源）
+// 注意：Copy 的 from(dir) 只拷贝目录内容而不含目录本身，vendor 需单独指定输出子目录
+tasks.register('copyWebIndex', Copy) {
+    from('../../index.html')
+    into('src/main/assets')
+}
+
+tasks.register('copyWebVendor', Copy) {
+    from('../../vendor')
+    into('src/main/assets/vendor')
+}
+
+tasks.named('preBuild') {
+    dependsOn 'copyWebIndex', 'copyWebVendor'
+}

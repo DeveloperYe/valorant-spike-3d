@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>SPIKE · 爆能器 3D 模型 — VALORANT</title>
+<style>
+:root{--bg:#0f1923;--ink:#ece8e1;--red:#ff4655;--neon:#ffa14a;--panel:rgba(13,22,31,.78)}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden}
+body{background:var(--bg);color:var(--ink);font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+#scene{position:fixed;inset:0;display:block;touch-action:none;cursor:grab}
+#scene:active{cursor:grabbing}
+.vignette{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 42%,transparent 52%,rgba(4,9,14,.6) 100%);z-index:2}
+#flash{position:fixed;inset:0;background:#fff3e2;opacity:0;pointer-events:none;z-index:40}
+.hud{position:fixed;z-index:10}
+.brand{top:26px;left:30px;pointer-events:none}
+.brand .v{color:var(--red);font-weight:800;font-size:12px;letter-spacing:.5em}
+.brand h1{margin-top:8px;font-size:32px;font-weight:800;letter-spacing:.12em;line-height:1}
+.brand h1 span{font-size:16px;font-weight:600;opacity:.85;margin-left:10px;letter-spacing:.3em}
+.redbar{width:46px;height:3px;background:var(--red);margin:12px 0 10px}
+.brand .sub{font-size:10px;letter-spacing:.32em;opacity:.5}
+.toggles{top:26px;right:30px;display:flex;gap:10px}
+.tbtn{padding:9px 16px;font-size:11px;letter-spacing:.22em;border:1px solid rgba(236,232,225,.25);background:rgba(13,22,31,.55);color:rgba(236,232,225,.75);cursor:pointer;user-select:none;transition:.15s;backdrop-filter:blur(4px)}
+.tbtn:hover{border-color:rgba(236,232,225,.6)}
+.tbtn.on{color:var(--neon);border-color:rgba(255,161,74,.55)}
+.hint{left:30px;bottom:28px;font-size:11px;line-height:2;letter-spacing:.18em;opacity:.42;pointer-events:none}
+.panel{left:50%;bottom:26px;transform:translateX(-50%);text-align:center;background:var(--panel);border:1px solid rgba(236,232,225,.14);padding:14px 26px 18px;min-width:340px;backdrop-filter:blur(8px)}
+.status{font-size:11px;letter-spacing:.34em;opacity:.75}
+.timer{display:none;font-size:46px;font-weight:800;letter-spacing:.04em;font-variant-numeric:tabular-nums;margin-top:4px;line-height:1.05}
+.timer.danger{color:var(--red)}
+.dbar{display:none;position:relative;height:6px;margin:14px 0 2px;background:rgba(236,232,225,.1);border:1px solid rgba(236,232,225,.22)}
+.dfill{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--red)}
+.dmark{position:absolute;left:50%;top:-4px;bottom:-4px;width:1px;background:rgba(236,232,225,.5)}
+.btns{display:flex;gap:10px;justify-content:center;margin-top:12px}
+.btn{border:1px solid rgba(236,232,225,.35);background:transparent;color:var(--ink);padding:10px 20px;font-size:12px;font-weight:700;letter-spacing:.2em;cursor:pointer;transition:.15s}
+.btn:hover:not(:disabled){background:var(--ink);color:#0f1923;border-color:var(--ink)}
+.btn:disabled{opacity:.25;cursor:not-allowed}
+.btn.primary{border-color:var(--red);color:var(--red)}
+.btn.primary:hover:not(:disabled){background:var(--red);border-color:var(--red);color:#0f1923}
+#err{display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:99;background:#2a1114;border:1px solid var(--red);color:#ffd9dc;padding:16px 22px;font-size:12px;max-width:70vw;white-space:pre-wrap}
+@media(max-width:640px){.hint{display:none}.brand h1{font-size:22px}.panel{min-width:0;width:calc(100vw - 24px)}.timer{font-size:36px}}
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<div class="vignette"></div>
+<div id="flash"></div>
+
+<header class="hud brand">
+  <div class="v">VALORANT</div>
+  <h1>SPIKE<span>爆能器</span></h1>
+  <div class="redbar"></div>
+  <div class="sub">PROCEDURAL 3D MODEL — THREE.JS</div>
+</header>
+
+<div class="hud toggles">
+  <div class="tbtn on" id="tRotate">自动旋转</div>
+  <div class="tbtn on" id="tSound">音效</div>
+</div>
+
+<div class="hud hint">左键拖拽 · 旋转<br>滚轮 · 缩放<br>右键拖拽 · 平移</div>
+
+<div class="hud panel">
+  <div class="status" id="status">待命 STANDBY</div>
+  <div class="timer" id="timer">45.0</div>
+  <div class="dbar" id="dbar"><div class="dfill" id="dfill"></div><div class="dmark"></div></div>
+  <div class="btns">
+    <button class="btn primary" id="btnPlant">安放 PLANT</button>
+    <button class="btn" id="btnDefuse" disabled>拆除 DEFUSE</button>
+    <button class="btn" id="btnReset">重置 RESET</button>
+  </div>
+</div>
+
+<div id="err"></div>
+
+<script src="vendor/three.min.js"></script>
+<script src="vendor/CopyShader.js"></script>
+<script src="vendor/LuminosityHighPassShader.js"></script>
+<script src="vendor/GammaCorrectionShader.js"></script>
+<script src="vendor/EffectComposer.js"></script>
+<script src="vendor/ShaderPass.js"></script>
+<script src="vendor/RenderPass.js"></script>
+<script src="vendor/UnrealBloomPass.js"></script>
+<script src="vendor/OrbitControls.js"></script>
+<script>
+'use strict';
+(function(){
+  if(!window.THREE){ showErr('THREE 加载失败，请确认 vendor/ 目录完整'); return; }
+
+  var FUSE=45, PLANT_TIME=4, DEFUSE_TIME=7, HALF=3.5;
+  var GLOW_IDLE=0x37a6ff, GLOW_ALERT=0xff4655;   // 待命/已安放蓝光 · 拆除中红光
+  var cIdle=new THREE.Color(GLOW_IDLE), cAlert=new THREE.Color(GLOW_ALERT), cGlow=new THREE.Color(GLOW_IDLE);
+  var canvas=document.getElementById('scene');
+  var elStatus=document.getElementById('status');
+  var elTimer=document.getElementById('timer');
+  var elFlash=document.getElementById('flash');
+  var btnPlant=document.getElementById('btnPlant'), btnDefuse=document.getElementById('btnDefuse'), btnReset=document.getElementById('btnReset');
+  var dbar=document.getElementById('dbar'), dfill=document.getElementById('dfill');
+  var tRotate=document.getElementById('tRotate'), tSound=document.getElementById('tSound');
+
+  // —— 基础状态 ——
+  var state='idle';            // idle | planting | planted | defusing | detonated
+  var plantT=0, defuseT=0, checkpoint=0;   // 安放进度 / 拆除进度 / 半程记录
+  var plantStart=0, beepTimer=0, dfBeepTimer=0, pulse=0;
+  var deploy=0, lift=0, shake=0, t=0;  // deploy: 0=收拢(携带) 1=展开(已安放) lift: 拆除外壳升起
+  var alertK=0;                // 拆除红光过渡系数 0..1
+  var muted=false, gen=0;
+  var statusOverride=0;
+
+  // —— 渲染器 / 场景 ——
+  var renderer=new THREE.WebGLRenderer({canvas:canvas,antialias:true});
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+  renderer.setSize(window.innerWidth,window.innerHeight);
+  renderer.shadowMap.enabled=true;
+  renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+  renderer.toneMapping=THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure=1.06;
+
+  var scene=new THREE.Scene();
+  scene.background=new THREE.Color(0x0f1923);
+  scene.fog=new THREE.FogExp2(0x0f1923,0.034);
+
+  var camera=new THREE.PerspectiveCamera(45,window.innerWidth/window.innerHeight,0.1,100);
+  var camStart=new THREE.Vector3(9,6,10), camEnd=new THREE.Vector3(4.0,3.1,5.0);
+  camera.position.copy(camStart);
+  var rig=new THREE.Group(); rig.add(camera); scene.add(rig);
+
+  var controls=new THREE.OrbitControls(camera,renderer.domElement);
+  controls.target.set(0,1.5,0);
+  controls.enableDamping=true; controls.dampingFactor=0.08;
+  controls.minDistance=2.5; controls.maxDistance=12;
+  controls.maxPolarAngle=1.5; controls.minPolarAngle=0.12;
+  controls.autoRotate=true; controls.autoRotateSpeed=1.2;
+  controls.enabled=false;
+  var introT=0, INTRO=1.5, introDone=false;
+  canvas.addEventListener('pointerdown',function(){ if(!introDone){introDone=true;controls.enabled=true;} },{once:true});
+  canvas.addEventListener('contextmenu',function(e){e.preventDefault();});
+
+  // —— 灯光 ——
+  scene.add(new THREE.HemisphereLight(0x9db4c8,0x0a0d12,0.55));
+  var key=new THREE.DirectionalLight(0xffffff,1.0);
+  key.position.set(4.5,7,3.5); key.castShadow=true;
+  key.shadow.mapSize.set(2048,2048);
+  key.shadow.camera.left=-4.5; key.shadow.camera.right=4.5;
+  key.shadow.camera.top=5; key.shadow.camera.bottom=-4.5;
+  key.shadow.camera.near=1; key.shadow.camera.far=20;
+  key.shadow.bias=-0.0005;
+  scene.add(key);
+  var rim=new THREE.DirectionalLight(0x5a7bff,0.35); rim.position.set(-6,4,-5); scene.add(rim);
+  var redFill=new THREE.PointLight(0xff4655,0.3,14); redFill.position.set(-3,1.2,2.6); scene.add(redFill);
+
+  // —— 地面 ——
+  var ground=new THREE.Mesh(new THREE.CircleGeometry(9,64),
+    new THREE.MeshStandardMaterial({color:0x0b0f14,roughness:0.96,metalness:0.1}));
+  ground.rotation.x=-Math.PI/2; ground.receiveShadow=true; scene.add(ground);
+  var grid=new THREE.PolarGridHelper(4.5,16,5,64,0x2a3949,0x18242f);
+  grid.position.y=0.012; grid.material.transparent=true; grid.material.opacity=0.35; scene.add(grid);
+
+  // —— 材质 ——
+  function std(c,r,m,f){ return new THREE.MeshStandardMaterial({color:c,roughness:r,metalness:m,flatShading:!!f}); }
+  var matBody=std(0x1b1d21,0.44,0.85,true);   // 深炭黑机体（棱面）
+  var matPanel=std(0x27292e,0.55,0.8,true);   // 略亮装甲板
+  var matDark=std(0x121317,0.6,0.7);          // 暗部/凹槽
+  var matGlow=new THREE.MeshStandardMaterial({color:0x081828,emissive:GLOW_IDLE,emissiveIntensity:0.6,roughness:0.35,metalness:0.1});
+
+  // —— 贴图（程序生成）——
+  function radialTex(size,inner){
+    var c=document.createElement('canvas'); c.width=c.height=size;
+    var g=c.getContext('2d');
+    var gr=g.createRadialGradient(size/2,size/2,0,size/2,size/2,size/2);
+    gr.addColorStop(0,'rgba(255,255,255,'+inner+')');
+    gr.addColorStop(0.35,'rgba(255,255,255,0.45)');
+    gr.addColorStop(1,'rgba(255,255,255,0)');
+    g.fillStyle=gr; g.fillRect(0,0,size,size);
+    return new THREE.CanvasTexture(c);
+  }
+  var dotTex=radialTex(64,1.0), glowTex=radialTex(128,0.9);
+
+  // —— 造型辅助：两点间圆柱撑杆 ——
+  function strut(p1,p2,r,mat){
+    var dir=new THREE.Vector3().subVectors(p2,p1);
+    var len=dir.length();
+    var m=new THREE.Mesh(new THREE.CylinderGeometry(r,r,len,10),mat);
+    m.position.copy(p1).addScaledVector(dir,0.5);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),dir.clone().normalize());
+    return m;
+  }
+
+  // ============================================================
+  //  爆能器建模 —— 依照官方造型：
+  //  底座 + 三楔形支脚 + 中央八棱柱(竖向发光缝) + 三机械撑臂
+  //  + 顶部伞盖(颈部光环 / 十棱碟形罩 / 穹顶信号灯)
+  //  收拢态：伞盖下沉、撑臂上折、支脚内收；安放后全部展开
+  // ============================================================
+  var spike=new THREE.Group(); scene.add(spike);
+  var S={feet:[],arms:[],canopy:null,coreLight:null,glow:null};
+  var COL_TOP=1.825;           // 柱顶高度（伞盖展开基准）
+
+  // —— 底座毂 ——
+  var hub=new THREE.Mesh(new THREE.CylinderGeometry(0.78,0.62,0.4,8),matBody);
+  hub.position.y=0.2; spike.add(hub);
+  var hubRing=new THREE.Mesh(new THREE.TorusGeometry(0.66,0.014,8,8),matGlow);
+  hubRing.rotation.x=Math.PI/2; hubRing.rotation.z=Math.PI/8; hubRing.position.y=0.385; spike.add(hubRing);
+
+  // —— 三片裙甲（支脚之间）——
+  var skirtShape=new THREE.Shape();
+  skirtShape.moveTo(-0.31,0); skirtShape.lineTo(0.31,0);
+  skirtShape.lineTo(0.22,0.85); skirtShape.lineTo(-0.22,0.85); skirtShape.closePath();
+  var skirtGeo=new THREE.ExtrudeGeometry(skirtShape,{depth:0.09,bevelEnabled:true,bevelThickness:0.02,bevelSize:0.02,bevelSegments:1});
+  skirtGeo.translate(0,0,-0.045);
+  for(var i=0;i<3;i++){
+    var sa=i/3*Math.PI*2+Math.PI/3;
+    var sk=new THREE.Mesh(skirtGeo,matPanel);
+    sk.position.set(Math.sin(sa)*0.7,0.05,Math.cos(sa)*0.7);
+    sk.rotation.y=sa; sk.rotation.x=-0.1;
+    spike.add(sk);
+  }
+
+  // —— 三大楔形支脚（收拢时上翘内收）——
+  var footShape=new THREE.Shape();
+  footShape.moveTo(0,0); footShape.lineTo(0.85,0);
+  footShape.lineTo(0.85,0.34); footShape.lineTo(0.22,0.44); footShape.closePath();
+  var footGeo=new THREE.ExtrudeGeometry(footShape,{depth:0.46,bevelEnabled:true,bevelThickness:0.02,bevelSize:0.02,bevelSegments:1});
+  footGeo.translate(0,0,-0.23);
+  for(i=0;i<3;i++){
+    var fa=i/3*Math.PI*2;
+    var yaw=new THREE.Group(); yaw.rotation.y=fa;
+    var pivot=new THREE.Group(); pivot.position.set(0.62,0.06,0);
+    var foot=new THREE.Mesh(footGeo,matPanel);
+    pivot.add(foot);
+    // 外缘发光缝
+    var fSeam=new THREE.Mesh(new THREE.BoxGeometry(0.05,0.028,0.4),matGlow);
+    fSeam.position.set(0.82,0.35,0); fSeam.rotation.z=-0.32;
+    pivot.add(fSeam);
+    yaw.add(pivot); spike.add(yaw);
+    S.feet.push(pivot);
+  }
+
+  // —— 中央八棱柱 + 竖向发光缝 + 棱线 ——
+  var column=new THREE.Mesh(new THREE.CylinderGeometry(0.52,0.52,1.75,8),matBody);
+  column.position.y=0.95; spike.add(column);
+  for(i=0;i<8;i++){ // 棱线
+    var ca=i/8*Math.PI*2+Math.PI/8;
+    var rib=new THREE.Mesh(new THREE.BoxGeometry(0.06,1.68,0.05),matDark);
+    rib.position.set(Math.sin(ca)*0.5,0.95,Math.cos(ca)*0.5);
+    rib.rotation.y=ca; spike.add(rib);
+  }
+  for(i=0;i<2;i++){ // 前后两面的双缝能量窗
+    var wa=i*Math.PI;
+    var wG=new THREE.Group(); wG.rotation.y=wa;
+    for(var j=0;j<2;j++){
+      var slit=new THREE.Mesh(new THREE.BoxGeometry(0.1,1.3,0.05),matGlow);
+      slit.position.set((j===0?-0.16:0.16),0.95,0.5);
+      wG.add(slit);
+    }
+    var mullion=new THREE.Mesh(new THREE.BoxGeometry(0.12,1.34,0.04),matDark);
+    mullion.position.set(0,0.95,0.5); wG.add(mullion);
+    spike.add(wG);
+  }
+  // —— 三条机械撑臂（肩→肘→足，收拢时下折并缩入肩部）——
+  for(i=0;i<3;i++){
+    var aa=i/3*Math.PI*2;
+    var aYaw=new THREE.Group(); aYaw.rotation.y=aa;
+    var arm=new THREE.Group(); arm.position.set(0.6,1.5,0);
+    var shoulder=new THREE.Mesh(new THREE.CylinderGeometry(0.09,0.09,0.26,10),matDark);
+    shoulder.rotation.x=Math.PI/2; arm.add(shoulder);
+    arm.add(strut(new THREE.Vector3(0.02,0,0),new THREE.Vector3(0.38,-0.68,0),0.055,matBody));
+    var elbow=new THREE.Mesh(new THREE.CylinderGeometry(0.11,0.11,0.3,10),matDark);
+    elbow.rotation.x=Math.PI/2; elbow.position.set(0.38,-0.68,0); arm.add(elbow);
+    arm.add(strut(new THREE.Vector3(0.38,-0.68,0),new THREE.Vector3(0.64,-1.32,0),0.05,matBody));
+    var footJoint=new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.08,0.2,10),matDark);
+    footJoint.rotation.x=Math.PI/2; footJoint.position.set(0.64,-1.32,0); arm.add(footJoint);
+    aYaw.add(arm); spike.add(aYaw);
+    S.arms.push(arm);
+  }
+
+  // —— 伞盖总成（整体沿柱升降）——
+  var canopy=new THREE.Group(); canopy.position.y=COL_TOP-1.35; spike.add(canopy);
+  S.canopy=canopy;
+  var neckLo=new THREE.Mesh(new THREE.CylinderGeometry(0.44,0.48,0.22,8),matDark);
+  neckLo.position.y=0.11; canopy.add(neckLo);
+  var neckGlow=new THREE.Mesh(new THREE.CylinderGeometry(0.47,0.47,0.13,8),matGlow);
+  neckGlow.position.y=0.30; canopy.add(neckGlow);
+  var neckHi=new THREE.Mesh(new THREE.CylinderGeometry(0.45,0.5,0.14,8),matBody);
+  neckHi.position.y=0.43; canopy.add(neckHi);
+  // 碟形伞盖（十棱）
+  var rimU=new THREE.Mesh(new THREE.CylinderGeometry(1.36,1.3,0.07,10),matDark);
+  rimU.position.y=0.50; canopy.add(rimU);
+  var saucer=new THREE.Mesh(new THREE.CylinderGeometry(1.02,1.34,0.26,10),matPanel);
+  saucer.position.y=0.665; canopy.add(saucer);
+  var saucerTop=new THREE.Mesh(new THREE.CylinderGeometry(0.62,0.98,0.1,10),matBody);
+  saucerTop.position.y=0.845; canopy.add(saucerTop);
+  // 穹顶信号灯组
+  var cupola=new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.44,0.18,8),matBody);
+  cupola.position.y=0.985; canopy.add(cupola);
+  var cupolaGlow=new THREE.Mesh(new THREE.CylinderGeometry(0.42,0.42,0.07,8),matGlow);
+  cupolaGlow.position.y=1.09; canopy.add(cupolaGlow);
+  var cap=new THREE.Mesh(new THREE.CylinderGeometry(0.34,0.42,0.08,8),matDark);
+  cap.position.y=1.17; canopy.add(cap);
+  var nub=new THREE.Mesh(new THREE.CylinderGeometry(0.09,0.13,0.08,8),matBody);
+  nub.position.y=1.25; canopy.add(nub);
+  // 颈部光晕 + 核心点光源
+  var glowMat=new THREE.SpriteMaterial({map:glowTex,color:GLOW_IDLE,transparent:true,opacity:0.3,blending:THREE.AdditiveBlending,depthWrite:false});
+  S.glow=new THREE.Sprite(glowMat); S.glow.scale.set(2.0,2.0,1); S.glow.position.y=0.3; canopy.add(S.glow);
+  S.coreLight=new THREE.PointLight(GLOW_IDLE,0.2,8); S.coreLight.position.y=0.4; canopy.add(S.coreLight);
+
+  spike.traverse(function(o){ if(o.isMesh){o.castShadow=true;} });
+
+  // —— 地面辉光（安放后）——
+  var groundGlow=new THREE.Mesh(new THREE.PlaneGeometry(5.4,5.4),
+    new THREE.MeshBasicMaterial({map:glowTex,color:GLOW_IDLE,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false}));
+  groundGlow.rotation.x=-Math.PI/2; groundGlow.position.y=0.02; scene.add(groundGlow);
+
+  // —— 引爆特效 ——
+  var shockMat=new THREE.MeshBasicMaterial({color:0xffc890,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
+  var shock=new THREE.Mesh(new THREE.RingGeometry(0.95,1.08,64),shockMat);
+  shock.rotation.x=-Math.PI/2; shock.position.y=0.05; shock.visible=false; scene.add(shock);
+  var ballMat=new THREE.MeshBasicMaterial({color:0xfff0d8,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false});
+  var ball=new THREE.Mesh(new THREE.SphereGeometry(0.55,24,24),ballMat);
+  ball.position.y=1.8; ball.visible=false; scene.add(ball);
+  var DN=140, dGeo=new THREE.BufferGeometry(), dPos=new Float32Array(DN*3), dVel=new Float32Array(DN*3);
+  dGeo.setAttribute('position',new THREE.BufferAttribute(dPos,3));
+  var dMat=new THREE.PointsMaterial({size:0.09,map:dotTex,color:0xffb066,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false});
+  var debris=new THREE.Points(dGeo,dMat); debris.visible=false; scene.add(debris);
+  var shockS=0, ballT=0, debrisLife=0;
+
+  // —— 后处理 ——
+  var composer=new THREE.EffectComposer(renderer);
+  composer.addPass(new THREE.RenderPass(scene,camera));
+  var bloom=new THREE.UnrealBloomPass(new THREE.Vector2(window.innerWidth,window.innerHeight),0.75,0.45,0.72);
+  composer.addPass(bloom);
+  composer.addPass(new THREE.ShaderPass(THREE.GammaCorrectionShader));
+
+  // —— 音效（WebAudio 程序合成）——
+  var audioCtx=null;
+  function ac(){ if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended')audioCtx.resume(); return audioCtx; }
+  function tone(f0,f1,dur,type,vol,delay){
+    if(muted)return;
+    var c=ac(),o=c.createOscillator(),g=c.createGain(),t0=c.currentTime+(delay||0);
+    o.type=type; o.frequency.setValueAtTime(f0,t0);
+    o.frequency.exponentialRampToValueAtTime(Math.max(f1,1),t0+dur);
+    g.gain.setValueAtTime(vol,t0); g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+    o.connect(g); g.connect(c.destination); o.start(t0); o.stop(t0+dur+0.03);
+  }
+  function sfxBeep(){ tone(1150,760,0.08,'square',0.12); }
+  function sfxPlant(){ tone(160,420,0.5,'sawtooth',0.13); tone(420,700,0.3,'square',0.09,0.42); }
+  function sfxLand(){ tone(520,180,0.22,'square',0.14); tone(90,58,0.3,'sine',0.3); }
+  function sfxDefuseStart(){ tone(300,540,0.3,'sawtooth',0.12); }
+  function sfxDefuseTick(){ tone(760,740,0.06,'square',0.09); }
+  function sfxAbort(){ tone(520,240,0.28,'sawtooth',0.11); }
+  function sfxDefuseDone(){ tone(520,1040,0.18,'square',0.12); tone(780,1560,0.22,'square',0.1,0.16); }
+  function sfxBoom(){
+    if(muted)return;
+    var c=ac(),t0=c.currentTime;
+    var len=Math.floor(c.sampleRate*1.4), buf=c.createBuffer(1,len,c.sampleRate), d=buf.getChannelData(0);
+    for(var i=0;i<len;i++){ d[i]=(Math.random()*2-1)*Math.pow(1-i/len,2); }
+    var src=c.createBufferSource(); src.buffer=buf;
+    var lp=c.createBiquadFilter(); lp.type='lowpass';
+    lp.frequency.setValueAtTime(2800,t0); lp.frequency.exponentialRampToValueAtTime(120,t0+1.2);
+    var g=c.createGain(); g.gain.setValueAtTime(0.55,t0); g.gain.exponentialRampToValueAtTime(0.0001,t0+1.35);
+    src.connect(lp); lp.connect(g); g.connect(c.destination); src.start(t0);
+    tone(130,34,0.9,'sine',0.5); tone(420,58,0.5,'square',0.16);
+  }
+
+  // —— UI 逻辑 ——
+  var lastStatus='';
+  function setStatus(txt){ if(txt!==lastStatus){ lastStatus=txt; elStatus.textContent=txt; } }
+  function defaultStatus(){
+    if(state==='planting')return '安放中 PLANTING';
+    if(state==='planted')return '已安放 · 计时中 PLANTED';
+    if(state==='defusing')return '拆除中 DEFUSING';
+    if(state==='detonated')return '已引爆 DETONATED';
+    return '待命 STANDBY';
+  }
+  function refreshUI(){
+    btnPlant.disabled=(state!=='idle');
+    var canDefuse=(state==='planted'||state==='defusing');
+    btnDefuse.disabled=!canDefuse;
+    btnDefuse.textContent=(state==='defusing')?'中断 ABORT':'拆除 DEFUSE';
+    var showTimer=(state==='planted'||state==='defusing');
+    elTimer.style.display=showTimer?'block':'none';
+    if(!showTimer) elTimer.classList.remove('danger');
+    dbar.style.display=(state==='defusing')?'block':'none';
+  }
+  btnPlant.addEventListener('click',function(){
+    if(state!=='idle')return;
+    ac(); state='planting'; plantT=0; pulse=1;
+    sfxPlant(); refreshUI();
+  });
+  btnDefuse.addEventListener('click',function(){
+    if(state==='planted'){
+      ac(); state='defusing'; defuseT=checkpoint; dfBeepTimer=0.5; pulse=1;
+      sfxDefuseStart(); refreshUI();
+    }else if(state==='defusing'){
+      state='planted';
+      checkpoint=(defuseT>=HALF)?HALF:0;   // 官方机制：过半程 3.5s 后中断，进度保留一半
+      sfxAbort(); refreshUI();
+    }
+  });
+  btnReset.addEventListener('click',function(){ hardReset(); });
+
+  tRotate.addEventListener('click',function(){
+    controls.autoRotate=!controls.autoRotate;
+    tRotate.classList.toggle('on',controls.autoRotate);
+  });
+  tSound.addEventListener('click',function(){
+    muted=!muted; tSound.classList.toggle('on',!muted);
+  });
+
+  function hardReset(){
+    gen++;
+    state='idle'; pulse=0; shake=0; deploy=0; lift=0;
+    plantT=0; defuseT=0; checkpoint=0; spike.position.y=0;
+    spike.visible=true; debris.visible=false; shock.visible=false; ball.visible=false;
+    statusOverride=0; setStatus(defaultStatus()); refreshUI();
+  }
+
+  function detonate(){
+    state='detonated'; gen++;
+    var myGen=gen;
+    checkpoint=0;
+    spike.visible=false;
+    sfxBoom();
+    elFlash.style.transition='none'; elFlash.style.opacity='0.95';
+    requestAnimationFrame(function(){ requestAnimationFrame(function(){
+      elFlash.style.transition='opacity .9s ease-out'; elFlash.style.opacity='0';
+    });});
+    shock.visible=true; shockS=0.3;
+    ball.visible=true; ballT=0; ball.position.y=1.8;
+    for(var i=0;i<DN;i++){
+      dPos[i*3]=0; dPos[i*3+1]=1.7; dPos[i*3+2]=0;
+      var th=Math.random()*Math.PI*2, ph=Math.random()*Math.PI, sp=3+Math.random()*6;
+      dVel[i*3]=Math.sin(ph)*Math.cos(th)*sp;
+      dVel[i*3+1]=Math.abs(Math.cos(ph))*sp*0.9+1.5;
+      dVel[i*3+2]=Math.sin(ph)*Math.sin(th)*sp;
+    }
+    dGeo.attributes.position.needsUpdate=true;
+    debris.visible=true; debrisLife=1.2;
+    shake=0.55;
+    setStatus(defaultStatus()); refreshUI();
+    setTimeout(function(){ if(gen===myGen) hardReset(); },2800);
+  }
+
+  function smooth(x){ x=Math.max(0,Math.min(1,x)); return x*x*(3-2*x); }
+  function lerp(a,b,k){ return a+(b-a)*k; }
+
+  // —— 主循环 ——
+  var clock=new THREE.Clock();
+  function animate(){
+    requestAnimationFrame(animate);
+    var dt=Math.min(clock.getDelta(),0.05);
+    t+=dt;
+
+    // 开场镜头
+    if(!introDone){
+      introT+=dt; var k=Math.min(1,introT/INTRO), e=1-Math.pow(1-k,3);
+      camera.position.lerpVectors(camStart,camEnd,e);
+      if(k>=1){ introDone=true; controls.enabled=true; }
+    }
+
+    // —— 安放（4 秒：从空中拉出来缓降落地并展开）——
+    if(state==='planting'){
+      plantT+=dt;
+      if(plantT>=PLANT_TIME){
+        plantT=PLANT_TIME; state='planted';
+        plantStart=performance.now(); beepTimer=0.35; pulse=1;
+        sfxLand(); refreshUI();
+      }
+    }
+    // —— 引信计时与滴答（安放完成后持续走，拆除途中同样有效）——
+    if(state==='planted'||state==='defusing'){
+      var rem=FUSE-(performance.now()-plantStart)/1000;
+      if(rem<=0){ elTimer.textContent='0.0'; detonate(); }
+      else{
+        elTimer.textContent=rem.toFixed(1);
+        elTimer.classList.toggle('danger',rem<=10);
+        beepTimer-=dt;
+        if(beepTimer<=0){
+          beepTimer=Math.max(0.12,1.05*Math.pow(rem/FUSE,1.7));
+          sfxBeep(); pulse=1;
+        }
+      }
+    }
+    // —— 拆除（7 秒，3.5 秒过半程）——
+    if(state==='defusing'){
+      defuseT+=dt;
+      if(defuseT>=DEFUSE_TIME){
+        state='idle'; checkpoint=0; sfxDefuseDone();
+        setStatus('已拆除 DEFUSED'); statusOverride=performance.now()+2200;
+        refreshUI();
+      }else{
+        dfill.style.width=Math.min(100,defuseT/DEFUSE_TIME*100)+'%';
+        dfBeepTimer-=dt;
+        if(dfBeepTimer<=0){ dfBeepTimer=1; sfxDefuseTick(); pulse=0.7; }
+      }
+    }
+
+    // 展开机构：伞盖升降 / 支脚展收 / 撑臂折放
+    var ds;
+    if(state==='planting'){
+      deploy=plantT/PLANT_TIME;
+      var pk=1-Math.pow(1-plantT/PLANT_TIME,3);
+      spike.position.y=(1-pk)*2.4;      // 从空中拉出来放到地上
+    }else{
+      var deployTarget=(state==='planted'||state==='defusing')?1:0;
+      deploy+=(deployTarget-deploy)*Math.min(1,dt*1.8);
+      spike.position.y=0;
+    }
+    ds=smooth(deploy);
+    // 拆除时外壳沿柱升起（官方：lights turn red + outer casing rises）
+    lift+=(((state==='defusing')?0.35:0)-lift)*Math.min(1,dt*3.5);
+    S.canopy.position.y=COL_TOP+lerp(-1.35,0,ds)+lift;
+    for(var i=0;i<S.feet.length;i++) S.feet[i].rotation.z=lerp(1.05,0,ds);
+    for(i=0;i<S.arms.length;i++){
+      S.arms[i].rotation.z=lerp(-1.9,0,ds);
+      S.arms[i].scale.setScalar(Math.max(0.05,ds)); // 收拢时缩入肩部，避免撑臂外戳
+    }
+
+    // 发光呼吸 + 滴答脉冲 + 状态色（蓝=常规 / 红=拆除中）
+    pulse*=Math.exp(-dt*5);
+    var breathe=Math.sin(t*2.4)*0.5+0.5;
+    alertK+=(((state==='defusing')?1:0)-alertK)*Math.min(1,dt*5);
+    cGlow.copy(cIdle).lerp(cAlert,alertK);
+    matGlow.emissive.copy(cGlow);
+    S.coreLight.color.copy(cGlow);
+    S.glow.material.color.copy(cGlow);
+    groundGlow.material.color.copy(cGlow);
+    var defPulse=alertK*(Math.sin(t*9)*0.5+0.5)*0.4;
+    matGlow.emissiveIntensity=lerp(0.18,0.9,ds)+breathe*0.1+pulse*(0.5+ds*1.5)+defPulse;
+    S.coreLight.intensity=lerp(0.15,0.7,ds)+pulse*3.2*ds+alertK*0.5;
+    S.glow.material.opacity=lerp(0.06,0.3,ds)+pulse*0.45*ds;
+    groundGlow.material.opacity=(0.1+pulse*0.12)*ds;
+
+    // 引爆特效推进
+    if(shock.visible){
+      shockS+=dt*11; shock.scale.setScalar(shockS);
+      shockMat.opacity=Math.max(0,0.9*(1-shockS/12));
+      if(shockS>=12)shock.visible=false;
+    }
+    if(ball.visible){
+      ballT+=dt; ball.scale.setScalar(1+ballT*5);
+      ballMat.opacity=Math.max(0,0.9*(1-ballT/0.5));
+      if(ballT>=0.5)ball.visible=false;
+    }
+    if(debris.visible){
+      debrisLife-=dt;
+      var da=dGeo.attributes.position.array;
+      for(i=0;i<DN;i++){
+        dVel[i*3+1]-=4.5*dt;
+        da[i*3]+=dVel[i*3]*dt; da[i*3+1]+=dVel[i*3+1]*dt; da[i*3+2]+=dVel[i*3+2]*dt;
+      }
+      dGeo.attributes.position.needsUpdate=true;
+      dMat.opacity=Math.max(0,debrisLife/1.2*0.95);
+      if(debrisLife<=0)debris.visible=false;
+    }
+
+    // 状态文案
+    if(statusOverride&&performance.now()>statusOverride){ statusOverride=0; }
+    if(!statusOverride) setStatus(defaultStatus());
+
+    // 镜头抖动
+    if(shake>0.001){
+      rig.position.set((Math.random()-0.5)*shake,(Math.random()-0.5)*shake,(Math.random()-0.5)*shake);
+      shake*=Math.exp(-dt*3.5);
+    }else{ rig.position.set(0,0,0); }
+
+    controls.update();
+    composer.render();
+  }
+
+  window.addEventListener('resize',function(){
+    camera.aspect=window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth,window.innerHeight);
+    composer.setSize(window.innerWidth,window.innerHeight);
+  });
+
+  function showErr(msg){
+    var e=document.getElementById('err');
+    e.style.display='block'; e.textContent=msg;
+  }
+  window.addEventListener('error',function(ev){ showErr('脚本错误: '+ev.message); });
+
+  refreshUI();
+  animate();
+})();
+</script>
+</body>
+</html>
