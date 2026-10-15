@@ -103,7 +103,7 @@ body{background:var(--bg);color:var(--ink);font-family:"Segoe UI","Microsoft YaH
   var state='idle';            // idle | planting | planted | defusing | detonated
   var plantT=0, defuseT=0, checkpoint=0;   // 安放进度 / 拆除进度 / 半程记录
   var plantStart=0, beepTimer=0, dfBeepTimer=0, pulse=0;
-  var deploy=0, lift=0, shake=0, t=0;  // deploy: 0=收拢(携带) 1=展开(已安放) lift: 拆除外壳升起
+  var deploy=0, shellRise=0, shake=0, t=0;  // deploy: 0=收拢(携带) 1=展开(已安放) shellRise: 拆除外壳升起 0..1
   var alertK=0;                // 拆除红光过渡系数 0..1
   var muted=false, gen=0;
   var statusOverride=0;
@@ -189,12 +189,13 @@ body{background:var(--bg);color:var(--ink);font-family:"Segoe UI","Microsoft YaH
 
   // ============================================================
   //  爆能器建模 —— 依照官方造型：
-  //  底座 + 三楔形支脚 + 中央八棱柱(竖向发光缝) + 三机械撑臂
+  //  底座 + 三楔形支脚 + 能量核心柱 + 四片装甲外壳(双发光缝) + 三机械撑臂
   //  + 顶部伞盖(颈部光环 / 十棱碟形罩 / 穹顶信号灯)
   //  收拢态：伞盖下沉、撑臂上折、支脚内收；安放后全部展开
+  //  拆除态：装甲外壳自下而上升起压缩、伞盖上抬，露出发光核心（官方机制）
   // ============================================================
   var spike=new THREE.Group(); scene.add(spike);
-  var S={feet:[],arms:[],canopy:null,coreLight:null,glow:null};
+  var S={feet:[],arms:[],shell:null,canopy:null,coreLight:null,glow:null};
   var COL_TOP=1.825;           // 柱顶高度（伞盖展开基准）
 
   // —— 底座毂 ——
@@ -237,26 +238,34 @@ body{background:var(--bg);color:var(--ink);font-family:"Segoe UI","Microsoft YaH
     S.feet.push(pivot);
   }
 
-  // —— 中央八棱柱 + 竖向发光缝 + 棱线 ——
-  var column=new THREE.Mesh(new THREE.CylinderGeometry(0.52,0.52,1.75,8),matBody);
-  column.position.y=0.95; spike.add(column);
-  for(i=0;i<8;i++){ // 棱线
-    var ca=i/8*Math.PI*2+Math.PI/8;
-    var rib=new THREE.Mesh(new THREE.BoxGeometry(0.06,1.68,0.05),matDark);
-    rib.position.set(Math.sin(ca)*0.5,0.95,Math.cos(ca)*0.5);
-    rib.rotation.y=ca; spike.add(rib);
+  // —— 中央能量核心柱（平时被外壳包裹，拆除时随外壳升起逐渐露出）——
+  var core=new THREE.Mesh(new THREE.CylinderGeometry(0.30,0.30,1.9,8),matGlow);
+  core.position.y=1.02; spike.add(core);
+  for(i=0;i<3;i++){ // 核心环箍
+    var cr=new THREE.Mesh(new THREE.TorusGeometry(0.315,0.02,6,8),matDark);
+    cr.rotation.x=Math.PI/2; cr.position.y=0.5+i*0.5; spike.add(cr);
   }
-  for(i=0;i<2;i++){ // 前后两面的双缝能量窗
-    var wa=i*Math.PI;
-    var wG=new THREE.Group(); wG.rotation.y=wa;
-    for(var j=0;j<2;j++){
-      var slit=new THREE.Mesh(new THREE.BoxGeometry(0.1,1.3,0.05),matGlow);
-      slit.position.set((j===0?-0.16:0.16),0.95,0.5);
-      wG.add(slit);
+  // —— 四片装甲外壳（安放态包裹核心；拆除时整体升起+压缩，露出核心）——
+  var shell=new THREE.Group(); spike.add(shell); S.shell=shell;
+  for(i=0;i<4;i++){
+    var pa=i/4*Math.PI*2;
+    var yawG=new THREE.Group(); yawG.rotation.y=pa;
+    for(var j=0;j<2;j++){ // 每面双缝能量窗
+      var seam=new THREE.Mesh(new THREE.BoxGeometry(0.09,1.2,0.05),matGlow);
+      seam.position.set((j===0?-0.16:0.16),0.975,0.55);
+      yawG.add(seam);
     }
-    var mullion=new THREE.Mesh(new THREE.BoxGeometry(0.12,1.34,0.04),matDark);
-    mullion.position.set(0,0.95,0.5); wG.add(mullion);
-    spike.add(wG);
+    var mullion=new THREE.Mesh(new THREE.BoxGeometry(0.12,1.28,0.04),matDark);
+    mullion.position.set(0,0.975,0.565); yawG.add(mullion);
+    var panel=new THREE.Mesh(new THREE.BoxGeometry(0.60,1.5,0.15),matPanel);
+    panel.position.set(0,0.975,0.47); yawG.add(panel);
+    shell.add(yawG);
+  }
+  for(i=0;i<4;i++){ // 角部棱柱
+    var ca=i/4*Math.PI*2+Math.PI/4;
+    var post=new THREE.Mesh(new THREE.BoxGeometry(0.09,1.62,0.09),matBody);
+    post.position.set(Math.sin(ca)*0.54,0.93,Math.cos(ca)*0.54);
+    post.rotation.y=ca; shell.add(post);
   }
   // —— 三条机械撑臂（肩→肘→足，收拢时下折并缩入肩部）——
   for(i=0;i<3;i++){
@@ -348,6 +357,7 @@ body{background:var(--bg);color:var(--ink);font-family:"Segoe UI","Microsoft YaH
   function sfxLand(){ tone(520,180,0.22,'square',0.14); tone(90,58,0.3,'sine',0.3); }
   function sfxDefuseStart(){ tone(300,540,0.3,'sawtooth',0.12); }
   function sfxDefuseTick(){ tone(760,740,0.06,'square',0.09); }
+  function sfxDefuseTick2(){ tone(1060,1020,0.06,'square',0.09); }  // 二段拆除：音调更尖（官方）
   function sfxAbort(){ tone(520,240,0.28,'sawtooth',0.11); }
   function sfxDefuseDone(){ tone(520,1040,0.18,'square',0.12); tone(780,1560,0.22,'square',0.1,0.16); }
   function sfxBoom(){
@@ -410,7 +420,7 @@ body{background:var(--bg);color:var(--ink);font-family:"Segoe UI","Microsoft YaH
 
   function hardReset(){
     gen++;
-    state='idle'; pulse=0; shake=0; deploy=0; lift=0;
+    state='idle'; pulse=0; shake=0; deploy=0; shellRise=0;
     plantT=0; defuseT=0; checkpoint=0; spike.position.y=0;
     spike.visible=true; debris.visible=false; shock.visible=false; ball.visible=false;
     statusOverride=0; setStatus(defaultStatus()); refreshUI();
@@ -492,7 +502,7 @@ body{background:var(--bg);color:var(--ink);font-family:"Segoe UI","Microsoft YaH
       }else{
         dfill.style.width=Math.min(100,defuseT/DEFUSE_TIME*100)+'%';
         dfBeepTimer-=dt;
-        if(dfBeepTimer<=0){ dfBeepTimer=1; sfxDefuseTick(); pulse=0.7; }
+        if(dfBeepTimer<=0){ dfBeepTimer=1; (defuseT>=HALF?sfxDefuseTick2:sfxDefuseTick)(); pulse=0.7; }
       }
     }
 
@@ -508,9 +518,14 @@ body{background:var(--bg);color:var(--ink);font-family:"Segoe UI","Microsoft YaH
       spike.position.y=0;
     }
     ds=smooth(deploy);
-    // 拆除时外壳沿柱升起（官方：lights turn red + outer casing rises）
-    lift+=(((state==='defusing')?0.35:0)-lift)*Math.min(1,dt*3.5);
-    S.canopy.position.y=COL_TOP+lerp(-1.35,0,ds)+lift;
+    // 拆除机制（官方）：拆除中装甲外壳自下而上升起并压缩，露出发光核心；
+    // 中断后外壳停在 checkpoint 高度——过半程 3.5s 停在半高，未过半程落回底部
+    var shellTarget=(state==='defusing')?Math.min(1,defuseT/DEFUSE_TIME)
+                   :(state==='planted')?checkpoint/DEFUSE_TIME:0;
+    shellRise+=(shellTarget-shellRise)*Math.min(1,dt*7);
+    S.shell.position.y=1.30*shellRise;
+    S.shell.scale.y=1-0.40*shellRise;
+    S.canopy.position.y=COL_TOP+lerp(-1.35,0,ds)+0.65*shellRise;
     for(var i=0;i<S.feet.length;i++) S.feet[i].rotation.z=lerp(1.05,0,ds);
     for(i=0;i<S.arms.length;i++){
       S.arms[i].rotation.z=lerp(-1.9,0,ds);
@@ -527,8 +542,8 @@ body{background:var(--bg);color:var(--ink);font-family:"Segoe UI","Microsoft YaH
     S.glow.material.color.copy(cGlow);
     groundGlow.material.color.copy(cGlow);
     var defPulse=alertK*(Math.sin(t*9)*0.5+0.5)*0.4;
-    matGlow.emissiveIntensity=lerp(0.18,0.9,ds)+breathe*0.1+pulse*(0.5+ds*1.5)+defPulse;
-    S.coreLight.intensity=lerp(0.15,0.7,ds)+pulse*3.2*ds+alertK*0.5;
+    matGlow.emissiveIntensity=lerp(0.18,0.9,ds)+breathe*0.1+pulse*(0.5+ds*1.5)+defPulse+shellRise*0.3;
+    S.coreLight.intensity=lerp(0.15,0.7,ds)+pulse*3.2*ds+alertK*0.5+shellRise*0.8;
     S.glow.material.opacity=lerp(0.06,0.3,ds)+pulse*0.45*ds;
     groundGlow.material.opacity=(0.1+pulse*0.12)*ds;
 
